@@ -35,7 +35,7 @@ const InterviewDetails = async ({ params }: RouteParams) => {
               alt="cover-image"
               width={40}
               height={40}
-              className="rounded-full object-cover size-[40px]"
+              className="rounded-full object-cover size-10"
             />
             <h3 className="capitalize">{interview.role} Interview</h3>
           </div>
