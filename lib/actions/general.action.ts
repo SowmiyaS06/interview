@@ -5,11 +5,31 @@ import { google } from "@ai-sdk/google";
 
 import { db } from "@/firebase/admin";
 import { feedbackSchema } from "@/constants";
+import { getCurrentUserId } from "./auth.action";
 
 export async function createFeedback(params: CreateFeedbackParams) {
-  const { interviewId, userId, transcript, feedbackId } = params;
+  const { interviewId, transcript, feedbackId } = params;
 
   try {
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    if (!transcript?.length) {
+      return { success: false, error: "Transcript is required" };
+    }
+
+    const interview = await getInterviewById(interviewId);
+    if (!interview) {
+      return { success: false, error: "Interview not found" };
+    }
+
+    const canAccessInterview = interview.userId === userId || interview.finalized;
+    if (!canAccessInterview) {
+      return { success: false, error: "Forbidden" };
+    }
+
     const formattedTranscript = transcript
       .map(
         (sentence: { role: string; content: string }) =>
@@ -66,8 +86,12 @@ export async function createFeedback(params: CreateFeedbackParams) {
 
 export async function getInterviewById(id: string): Promise<Interview | null> {
   const interview = await db.collection("interviews").doc(id).get();
+  if (!interview.exists) return null;
 
-  return interview.data() as Interview | null;
+  return {
+    id: interview.id,
+    ...interview.data(),
+  } as Interview;
 }
 
 export async function getFeedbackByInterviewId(

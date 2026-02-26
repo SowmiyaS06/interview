@@ -1,17 +1,35 @@
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
+import { cookies } from "next/headers";
 
-import { db } from "@/firebase/admin";
+import { auth, db } from "@/firebase/admin";
 import { getRandomInterviewCover } from "@/lib/utils";
+
+const SERVER_VAPI_DEBUG = process.env.VAPI_DEBUG === "true";
+
+const serverDebugLog = (label: string, payload?: unknown) => {
+  if (!SERVER_VAPI_DEBUG) return;
+  if (payload === undefined) {
+    console.log(`[VAPI_SERVER_DEBUG] ${label}`);
+    return;
+  }
+  console.log(`[VAPI_SERVER_DEBUG] ${label}`, payload);
+};
 
 type GeneratePayload = {
   type?: string;
   role?: string;
+  jobRole?: string;
+  position?: string;
   level?: string;
+  experienceLevel?: string;
+  seniority?: string;
   techstack?: string | string[];
+  techStack?: string | string[];
   amount?: number | string;
   userid?: string;
   userId?: string;
+  uid?: string;
   questions?: string[] | string;
 };
 
@@ -28,6 +46,16 @@ const normalizeTechstack = (techstack: GeneratePayload["techstack"]) => {
   }
 
   return [];
+};
+
+const pickString = (values: Array<unknown>, fallback = "") => {
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+    const normalized = String(value).trim();
+    if (normalized) return normalized;
+  }
+
+  return fallback;
 };
 
 const parseQuestions = (input: string | string[] | undefined) => {
@@ -67,6 +95,27 @@ const parseQuestions = (input: string | string[] | undefined) => {
     .filter(Boolean);
 };
 
+const getRequestUserId = async (payload: GeneratePayload) => {
+  const sessionCookie = (await cookies()).get("session")?.value;
+  if (sessionCookie) {
+    try {
+      const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);
+      if (decodedClaims.uid) return decodedClaims.uid;
+    } catch {
+      // fallback to payload user id
+    }
+  }
+
+  const fallbackId = String(payload.userId ?? payload.userid ?? payload.uid ?? "").trim();
+  if (fallbackId) return fallbackId;
+
+  if (process.env.NODE_ENV !== "production") {
+    return process.env.DEV_FALLBACK_USER_ID?.trim() || "dev-anonymous-user";
+  }
+
+  return "";
+};
+
 export async function POST(request: Request) {
   let payload: GeneratePayload;
 
@@ -79,29 +128,30 @@ export async function POST(request: Request) {
     );
   }
 
-  const type = String(payload.type ?? "Technical").trim();
-  const role = String(payload.role ?? "").trim();
-  const level = String(payload.level ?? "").trim();
+  const type = pickString([payload.type], "Technical");
+  const role = pickString([payload.role, payload.jobRole, payload.position], "General");
+  const level = pickString([payload.level, payload.experienceLevel, payload.seniority], "Mid");
   const amount = Number(payload.amount ?? 5);
-  const userId = String(payload.userId ?? payload.userid ?? "").trim();
-  const techStackList = normalizeTechstack(payload.techstack);
+  const userId = await getRequestUserId(payload);
+  const techStackList = normalizeTechstack(payload.techstack ?? payload.techStack);
 
-  console.log("[vapi/generate] Incoming payload", {
+  serverDebugLog("Incoming payload normalized", {
     role,
     level,
     type,
     amount,
     userId,
     techstackCount: techStackList.length,
-    hasQuestions: !!payload.questions,
+    hasQuestionsFromClient: !!payload.questions,
   });
 
   try {
-    if (!userId || !role || !level) {
+    if (!userId) {
       return Response.json(
         {
           success: false,
-          error: "Missing required fields: userId, role, level",
+          error:
+            "Missing required user identity. Provide session cookie or one of: userId, userid, uid.",
         },
         { status: 400 }
       );
@@ -128,6 +178,9 @@ export async function POST(request: Request) {
       });
 
       questions = parseQuestions(text);
+      serverDebugLog("Questions generated via Gemini", {
+        parsedQuestionsCount: questions.length,
+      });
     }
 
     if (!questions.length) {
@@ -150,19 +203,35 @@ export async function POST(request: Request) {
     };
 
     const interviewRef = await db.collection("interviews").add(interview);
-    console.log("[vapi/generate] Interview saved", {
+
+    serverDebugLog("Interview saved", {
       interviewId: interviewRef.id,
-      userId,
       role,
+      level,
+      type,
+      amount,
+      userId,
+      questionsCount: questions.length,
     });
 
     return Response.json(
-      { success: true, interviewId: interviewRef.id },
+      {
+        success: true,
+        interviewId: interviewRef.id,
+        role,
+        level,
+        type,
+        amount,
+        techstack: techStackList,
+        userId,
+        questionsCount: questions.length,
+      },
       { status: 200 }
     );
   } catch (error) {
     console.error("Error:", error);
     const message = error instanceof Error ? error.message : "Unknown server error";
+    serverDebugLog("Generate route failed", { message });
     return Response.json({ success: false, error: message }, { status: 500 });
   }
 }

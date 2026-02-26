@@ -27,7 +27,6 @@ interface Interview {
 
 interface CreateFeedbackParams {
   interviewId: string;
-  userId: string;
   transcript: { role: string; content: string }[];
   feedbackId?: string;
 }
@@ -80,7 +79,6 @@ interface SignUpParams {
   uid: string;
   name: string;
   email: string;
-  password: string;
 }
 
 type FormType = "sign-in" | "sign-up";

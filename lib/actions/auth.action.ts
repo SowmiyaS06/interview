@@ -84,6 +84,11 @@ export async function signIn(params: SignInParams) {
       };
 
     await setSessionCookie(idToken);
+
+    return {
+      success: true,
+      message: "Signed in successfully.",
+    };
   } catch (error: unknown) {
     console.error("Error signing in:", error);
 
@@ -101,8 +106,7 @@ export async function signOut() {
   cookieStore.delete("session");
 }
 
-// Get current user from session cookie
-export async function getCurrentUser(): Promise<User | null> {
+export async function getCurrentUserId(): Promise<string | null> {
   const cookieStore = await cookies();
 
   const sessionCookie = cookieStore.get("session")?.value;
@@ -110,12 +114,20 @@ export async function getCurrentUser(): Promise<User | null> {
 
   try {
     const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);
+    return decodedClaims.uid;
+  } catch {
+    return null;
+  }
+}
 
+// Get current user from session cookie
+export async function getCurrentUser(): Promise<User | null> {
+  const uid = await getCurrentUserId();
+  if (!uid) return null;
+
+  try {
     // get user info from db
-    const userRecord = await db
-      .collection("users")
-      .doc(decodedClaims.uid)
-      .get();
+    const userRecord = await db.collection("users").doc(uid).get();
     if (!userRecord.exists) return null;
 
     return {

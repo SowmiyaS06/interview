@@ -190,7 +190,6 @@ const AuthForm = ({ type }: { type: FormType }) => {
           uid: userCredential.user.uid,
           name: name!,
           email,
-          password,
         });
 
         if (!result.success) {
@@ -215,10 +214,15 @@ const AuthForm = ({ type }: { type: FormType }) => {
           return;
         }
 
-        await signIn({
+        const result = await signIn({
           email,
           idToken,
         });
+
+        if (!result?.success) {
+          toast.error(result?.message ?? "Failed to sign in.");
+          return;
+        }
 
         toast.success("Signed in successfully.");
         router.push("/");

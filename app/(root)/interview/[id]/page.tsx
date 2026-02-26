@@ -20,6 +20,14 @@ const InterviewDetails = async ({ params }: RouteParams) => {
   const interview = await getInterviewById(id);
   if (!interview) redirect("/");
 
+  const canAccessInterview =
+    interview.userId === user.id || interview.finalized;
+  if (!canAccessInterview) redirect("/");
+
+  const hasGeneratedQuestions =
+    interview.finalized && Array.isArray(interview.questions) && interview.questions.length > 0;
+  if (!hasGeneratedQuestions) redirect("/");
+
   const feedback = await getFeedbackByInterviewId({
     interviewId: id,
     userId: user.id,
